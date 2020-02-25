@@ -1,0 +1,86 @@
+proc freeze_input_regs {clk} {
+
+	rm -rf ./i2r_sink_${clk}.txt
+	set in2reg_sinks($clk) ""
+	set hfn_count 100
+
+	foreach_in_collection p [get_ports [all_inputs -no_clock]  -filter "direction==in"] {
+                set port  [get_object_name [get_ports $p]]
+                set cells [get_object_name [get_cells -quiet -of_objects [all_fanout -from $port -endpoints_only] -filter "is_clock_gating_check ==false && is_memory_cell == false && is_black_box == false" ] ]
+                set reg_pins [get_object_name [get_pins -quiet -of_objects [ get_cells $cells ]  -filter "is_clock==true"]]
+                if {[llength $reg_pins] > ${hfn_count}} {
+			puts "@~@ Find a high fanout port $port [llength $reg_pins],	ignore"
+			continue
+			} else {
+                        foreach reg_pin $reg_pins {
+                                if {[lsearch -exact [get_ccopt_property clock_trees -pin $reg_pin] ${clk}] != -1 } {                              
+                 			lappend in2reg_sinks($clk) $reg_pin
+					set_ccopt_property schedule off -pin $reg_pin
+					echo "set_ccopt_property schedule off -pin $reg_pin" >> ./i2r_sink_${clk}.txt	
+                                }
+                        }
+                }
+        }
+
+
+	set in2reg_sinkOnly($clk) [lsort -u $in2reg_sinks($clk)]
+	echo "##  in2reg_sinkOnly($clk) length is [llength $in2reg_sinkOnly($clk)]" >> ./i2r_sink_${clk}.txt
+	
+	# create a dummy skew_group
+        delete_ccopt_skew_group in2reg_sink_${clk}
+        create_ccopt_skew_group -name in2reg_sink_${clk} -source [get_ccopt_property source_pin -clock_tree ${clk}]
+
+        foreach sink_pin $in2reg_sinkOnly($clk) {
+		if {[lsearch -exact [get_ccopt_property clock_trees -pin $sink_pin] ${clk}] != -1 } {
+                        puts "modify_ccopt_skew_group -add_sinks $sink_pin -skew_group in2reg_sink_${clk}"
+                        modify_ccopt_skew_group -add_sinks $sink_pin -skew_group in2reg_sink_${clk}
+                }
+        }
+
+	setOptMode -skewClockPreserveLatencyTermList "$in2reg_sinkOnly($clk)"	
+}
+
+	
+
+
+proc freeze_output_regs {clk} {
+
+        rm -rf ./r2o_sink_${clk}.txt
+        set reg2out_sinks($clk) ""
+	set hfn_count 100
+
+	foreach_in_collection p [get_ports [list *] -filter "direction==out"] {
+		set port  [get_object_name [get_ports $p]]
+		set cells [get_object_name [get_cells -quiet -of_objects [all_fanin -to $port -startpoints_only] -filter "is_clock_gating_check ==false && is_memory_cell == false && is_black_box == false" ] ]
+		set reg_pins [get_object_name [get_pins -quiet -of_objects [ get_cells $cells ]  -filter "is_clock==true"]]
+ 
+		if {[llength $reg_pins] > ${hfn_count}} {
+			puts "@~@ Find a high fanout port $port [llength $reg_pins],    ignore"
+			continue
+			} else {
+			foreach reg_pin $reg_pins {
+				if {[lsearch -exact [get_ccopt_property clock_trees -pin $reg_pin] ${clk}] != -1 } {
+					lappend reg2out_sinks($clk) $reg_pin
+					set_ccopt_property schedule off -pin $reg_pin
+					echo "set_ccopt_property schedule off -pin $reg_pin" >>  ./r2o_sink_${clk}.txt
+				}
+			}
+		}
+	}
+
+	set reg2out_sinkOnly($clk) [lsort -u $reg2out_sinks($clk)]
+        echo "## reg2out_sinkOnly($clk) length is [llength $reg2out_sinkOnly($clk)]" >> ./r2o_sink_${clk}.txt
+
+	# create a dummy skew_group
+	delete_ccopt_skew_group reg2out_sink_${clk}
+        create_ccopt_skew_group -name reg2out_sink_${clk} -source [get_ccopt_property source_pin -clock_tree ${clk}]
+
+	foreach sink_pin $reg2out_sinkOnly($clk) {
+		if {[lsearch -exact [get_ccopt_property clock_trees -pin $sink_pin] ${clk}] != -1 } {
+			puts "modify_ccopt_skew_group -add_sinks $sink_pin -skew_group reg2out_sink_${clk}"
+			modify_ccopt_skew_group -add_sinks $sink_pin -skew_group reg2out_sink_${clk}
+		}
+	}
+	
+	setOptMode -skewClockPreserveLatencyTermList "$reg2out_sinkOnly($clk)"	
+}
