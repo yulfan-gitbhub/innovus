@@ -1,0 +1,79 @@
+//SELECT OBJECT
+selectObjByProp Instance <cell>match<*quad*>
+selectObj *quad*
+selectObjByProp Pin And(And(!<Status>=<Unplaced>,<Side=<Top>),OR(<Module>Match<DTMF_INST/TDSP_CORE_INST>, <Module>Match<DTMF_INST/ARB_INST>)
+#{Instance Pin Net Module InstanceGroup Bump}
+View -> Find
+
+saveIoFile -ioOrder 
+
+ecoChangeCell  -inst   H3C_Scan_Persistent_Cell_occ_tcam_clk_mux  -cell    MUX2D4BWP16P90CPDULVT ## size_cell
+
+report_property [get_cell xx] -property_list { is_memory_cell is_macro_cell }
+dbGet [dbGet top.insts.name *occ_*_inst/* -p].cell.isSequential 1 -p2
+
+setAttribute -net  netname  -skip_routing
+setAttribute -net  netname  -non_default_rule rule_name
+setAttribute -net  netname  -top_preferred_routing_layer  -bottom_preferred_routing_layer 
+
+### place related
+place_design #corase placement
+place_opt_design #GigaPlace
+place_connected -attractor #magenet placement
+create_inst_space_group #place inst by specified space
+
+Un/SelectiveBlkgGate –cell NR2RLX1 -inst MEMCTLU* (soft/hard/partial)
+setPlaceMode 
+setOptMode
+getPlaceMode
+createPlaceBlockage
+
+reportDensityMap -gridInrow 10
+dbGet head.rules.name
+set_global report_timing_format { instance cell arc slew load delay incr_delay arrvial fanout user_derate pin_location } 
+
+
+report_ccopt_pin_insertion_delays
+
+set_ccopt_property balance_mode cluster 
+#cluster, trial, full
+set_ccopt_property use_estimated_routes_during_final_implementation true 
+ccopt_design  -cts -prefix $target
+report_ccopt_clock_tree_structure
+
+set_ccopt_property schedule off -pin
+lsearch -exact [get_ccopt_property clock_trees -pin $reg_pin] ${clk}
+foreach net [get_ccopt_clock_tree_nets * -net_type top] {selectNet $net}
+set_ccopt_property sink_type -pin H3C_Scan_Persistent_Cell_occ_npc_top_clk_mux/I1 ignore
+get_ccopt_property sink_type -pin H3C_Scan_Persistent_Cell_occ_npc_top_clk_mux/I1 
+
+
+set tap [dbGet top.insts.instTerms.name tap_ht_*/I ]
+create_ccopt_skew_group  -name tap_ht_skewgroup -constrains none -sources clk -sinks $tap
+report_ccopt_skew_groups -skew_groups [get_ccopt_skew_groups tap_ht_skewgroup ] -summary -file 1
+
+
+#useful skew
+setOptMode -usefulSkew true
+setUsefulSkewMode -noBoundary true
+set_ccopt_property ccopt_auto_limit_insertion_delay_factor 1.1
+setOptMode -usefulSkewCCOpt standard
+dbSet [dbGet top.insts.name *tessent_persistent_cell_* -p].dontTouch
+set xx [dbGet top.fPlan.box_sizex]
+
+defOutBySection-scanChains –noNets-noCompsscan.def
+
+
+specifyCellPad SDF* -left 8 -right 8 -top 1
+foreach   inst  [dbGet top.insts.name  l2c_feed_through/*/all_credits_3__genblk1_data_in/smp_fifo/*reg* ]  {
+	placeInstance   $inst  {28  2900} -placed
+	}
+       placeInstance  mem_fcu/l2c_ezn_dma_bp_reg  {617.09 1522.94} -softFixed
+ createInstGroup   l2c_top_0_ezn_r_d -guide {691 814 800 880} 
+ foreach inst [dbGet top.insts.name l2c_top_0/l2c_input_stage/l2c_msn_if/*reg_*   ] {
+  addInstToInstGroup  l2c_top_0_ezn_r_d  $inst
+    }
+ placeInstance npc_wrap_w/npc_top_rtl1_tessent_mbist_c6_controller_inst/tessent_persistent_cell_GATING_BIST_CLK  "1440 410" -placed
+
+
+report_analysis_views func_ssgnp0p72v0c_cworstT_setup
